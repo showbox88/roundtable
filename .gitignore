@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# venv
+.venv/
+venv/
+
+# Runtime data (本地讨论记录、日志、PID)
+output/
+logs/
+*.pid
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
