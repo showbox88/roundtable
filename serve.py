@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("America/New_York")
 
 import markdown
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -38,7 +42,7 @@ async def run_discussion_once() -> None:
     """
     LOG_DIR.mkdir(exist_ok=True)
     log.info("starting discussion run")
-    started = datetime.now().isoformat()
+    started = datetime.now(TZ).isoformat()
     proc = await asyncio.create_subprocess_exec(
         str(PYTHON_BIN),
         str(DISCUSSION_PY),
@@ -47,7 +51,7 @@ async def run_discussion_once() -> None:
         stderr=asyncio.subprocess.STDOUT,
     )
     stdout, _ = await proc.communicate()
-    finished = datetime.now().isoformat()
+    finished = datetime.now(TZ).isoformat()
     log_path = LOG_DIR / "cron.log"
     with log_path.open("ab") as fh:
         fh.write(f"=== {started} -> {finished} exit={proc.returncode} ===\n".encode())
@@ -56,13 +60,18 @@ async def run_discussion_once() -> None:
     log.info("discussion run finished exit=%s", proc.returncode)
 
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone=TZ)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动后第一次跑放 3 小时后。手动 kickoff 已经在跑当下这场。
-    first_run = datetime.now() + timedelta(hours=DISCUSSION_INTERVAL_HOURS)
+    # ROUNDTABLE_NO_SCHEDULE=1 → 只起 web，不自动开讨论（适合只浏览历史记录）
+    if os.environ.get("ROUNDTABLE_NO_SCHEDULE") == "1":
+        log.info("scheduler disabled via ROUNDTABLE_NO_SCHEDULE=1; web-only mode")
+        yield
+        return
+
+    first_run = datetime.now(TZ) + timedelta(hours=DISCUSSION_INTERVAL_HOURS)
     scheduler.add_job(
         run_discussion_once,
         "interval",
@@ -183,10 +192,13 @@ def index() -> str:
             f'<span class="topic">{topic}</span>'
             f"</a></li>"
         )
+    if scheduler.get_job("discussion"):
+        meta = f"共 {len(files)} 场讨论 · 每 {DISCUSSION_INTERVAL_HOURS} 小时自动新增一场"
+    else:
+        meta = f"共 {len(files)} 场讨论 · 自动讨论已关闭"
     body = (
         f"<h1>讨论室</h1>"
-        f'<div class="meta">共 {len(files)} 场讨论 · 每 '
-        f"{DISCUSSION_INTERVAL_HOURS} 小时自动新增一场</div>"
+        f'<div class="meta">{meta}</div>'
         f'<ul class="list">{"".join(items)}</ul>'
     )
     return PAGE.format(title="讨论室", css=CSS, next_run=_next_run_str(), content=body)
@@ -201,7 +213,7 @@ def show(stem: str) -> str:
         fpath.read_text(encoding="utf-8"),
         extensions=["tables", "fenced_code", "nl2br"],
     )
-    mtime = datetime.fromtimestamp(fpath.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    mtime = datetime.fromtimestamp(fpath.stat().st_mtime, TZ).strftime("%Y-%m-%d %H:%M:%S")
     content = f'<div class="meta">生成时间：{mtime}</div>{html}'
     return PAGE.format(
         title=_format_stem(stem), css=CSS, next_run=_next_run_str(), content=content

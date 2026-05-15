@@ -9,6 +9,9 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("America/New_York")
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -103,7 +106,7 @@ async def summarize(topic: str, transcript: str) -> str:
 async def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
-    now = datetime.now()
+    now = datetime.now(TZ)
     stamp = now.strftime("%Y-%m-%d_%H-%M")
     out_file = OUTPUT_DIR / f"{stamp}.md"
 
